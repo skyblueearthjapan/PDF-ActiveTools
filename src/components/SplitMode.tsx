@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import JSZip from 'jszip';
 import { PDFFile, PDFPage } from '../types/pdf';
 import { splitPDF, downloadPDF } from '../utils/pdfUtils';
 
@@ -34,6 +35,8 @@ export const SplitMode: React.FC<SplitModeProps> = ({ pages, files, onClearAll }
 
     setIsSplitting(true);
     try {
+      const zip = new JSZip();
+
       if (splitMethod === 'all') {
         // すべてのページを1ページずつ分割
         for (let i = 0; i < pages.length; i++) {
@@ -43,10 +46,15 @@ export const SplitMode: React.FC<SplitModeProps> = ({ pages, files, onClearAll }
 
           const blobs = await splitPDF(file, [{ start: page.pageNumber, end: page.pageNumber }]);
           if (blobs.length > 0) {
-            downloadPDF(blobs[0], `page_${i + 1}.pdf`);
+            const paddedNumber = String(i + 1).padStart(3, '0');
+            zip.file(`page-${paddedNumber}.pdf`, blobs[0]);
           }
         }
-        alert(`${pages.length}個のPDFファイルをダウンロードしました`);
+
+        // ZIPファイルを生成してダウンロード
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        downloadPDF(zipBlob, 'split-pages.zip');
+        alert(`${pages.length}個のPDFファイルをZIPでダウンロードしました`);
       } else if (splitMethod === 'range') {
         // 範囲指定で分割
         const parts = rangeInput.split(',').map((s) => s.trim()).filter(Boolean);
@@ -66,7 +74,7 @@ export const SplitMode: React.FC<SplitModeProps> = ({ pages, files, onClearAll }
           ranges.push({ start, end });
         }
 
-        // 範囲ごとに分割
+        // 範囲ごとに分割してZIPに追加
         for (let i = 0; i < ranges.length; i++) {
           const range = ranges[i];
           const pagesInRange = pages.slice(range.start, range.end + 1);
@@ -75,22 +83,21 @@ export const SplitMode: React.FC<SplitModeProps> = ({ pages, files, onClearAll }
           const pageInfos = pagesInRange.map((page) => {
             const file = files.find((f) => f.pages.some((p) => p.id === page.id))?.file;
             if (!file) throw new Error(`File not found for page ${page.id}`);
-            return { file, pageNumber: page.pageNumber };
+            return { file, pageNumber: page.pageNumber, rotation: page.rotation };
           });
 
-          // 簡易的な実装: 各ページを個別に抽出して結合
-          // 本来はmergePDFsを使うべきだが、ここではsplitPDFを使用
-          const firstFile = pageInfos[0].file;
-          const blobs = await splitPDF(firstFile, [
-            { start: pageInfos[0].pageNumber, end: pageInfos[0].pageNumber }
-          ]);
+          // mergePDFsを使用して範囲内のページを結合
+          const { mergePDFs } = await import('../utils/pdfUtils');
+          const mergedBlob = await mergePDFs(pageInfos);
 
-          if (blobs.length > 0) {
-            downloadPDF(blobs[0], `part_${i + 1}.pdf`);
-          }
+          const paddedNumber = String(i + 1).padStart(3, '0');
+          zip.file(`part-${paddedNumber}.pdf`, mergedBlob);
         }
 
-        alert(`${ranges.length}個のPDFファイルをダウンロードしました`);
+        // ZIPファイルを生成してダウンロード
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        downloadPDF(zipBlob, 'split-ranges.zip');
+        alert(`${ranges.length}個のPDFファイルをZIPでダウンロードしました`);
       } else if (splitMethod === 'select') {
         // 選択したページのみで1つのPDFを作成
         if (selectedPages.size === 0) {
