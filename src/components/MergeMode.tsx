@@ -1,65 +1,57 @@
 import React, { useState } from 'react';
-import { PDFFile, PDFPage, OutputPage } from '../types/pdf';
+import { PDFFile, PDFPage } from '../types/pdf';
 import { mergePDFs, downloadPDF } from '../utils/pdfUtils';
 
 interface MergeModeProps {
+  pages: PDFPage[];
   files: PDFFile[];
+  onPageReorder: (fromIndex: number, toIndex: number) => void;
+  onPageRemove: (pageId: string) => void;
+  onPageRotate: (pageId: string) => void;
+  onPageDuplicate: (pageId: string) => void;
+  onClearAll: () => void;
 }
 
-export const MergeMode: React.FC<MergeModeProps> = ({ files }) => {
-  const [outputPages, setOutputPages] = useState<OutputPage[]>([]);
-  const [draggedPage, setDraggedPage] = useState<PDFPage | null>(null);
+export const MergeMode: React.FC<MergeModeProps> = ({
+  pages,
+  files,
+  onPageReorder,
+  onPageRemove,
+  onPageRotate,
+  onPageDuplicate,
+  onClearAll,
+}) => {
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
 
-  const handleDragStart = (page: PDFPage) => {
-    setDraggedPage(page);
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
-  };
-
-  const handleDropToOutput = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (draggedPage) {
-      const newPage: OutputPage = {
-        ...draggedPage,
-        order: outputPages.length,
-      };
-      setOutputPages([...outputPages, newPage]);
-      setDraggedPage(null);
+    if (draggedIndex !== null && draggedIndex !== index) {
+      onPageReorder(draggedIndex, index);
+      setDraggedIndex(index);
     }
   };
 
-  const handleRemovePage = (index: number) => {
-    setOutputPages(outputPages.filter((_, i) => i !== index));
-  };
-
-  const handleRotatePage = (index: number) => {
-    const newPages = [...outputPages];
-    newPages[index] = {
-      ...newPages[index],
-      rotation: (newPages[index].rotation + 90) % 360,
-    };
-    setOutputPages(newPages);
-  };
-
-  const handleReorder = (fromIndex: number, toIndex: number) => {
-    const newPages = [...outputPages];
-    const [removed] = newPages.splice(fromIndex, 1);
-    newPages.splice(toIndex, 0, removed);
-    setOutputPages(newPages);
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
   };
 
   const handleMerge = async () => {
-    if (outputPages.length === 0) {
-      alert('結合するページを追加してください');
+    if (pages.length === 0) {
+      alert('結合するページがありません。PDFファイルをアップロードしてください。');
       return;
     }
 
+    setIsMerging(true);
     try {
-      const pageInfos = outputPages.map((page) => {
-        const file = files.find((f) => f.id === page.fileId)?.file;
-        if (!file) throw new Error('File not found');
+      // 各ページに対応するファイルを見つける
+      const pageInfos = pages.map((page) => {
+        const file = files.find((f) => f.pages.some((p) => p.id === page.id))?.file;
+        if (!file) throw new Error(`File not found for page ${page.id}`);
         return {
           file,
           pageNumber: page.pageNumber,
@@ -69,23 +61,29 @@ export const MergeMode: React.FC<MergeModeProps> = ({ files }) => {
 
       const mergedBlob = await mergePDFs(pageInfos);
       downloadPDF(mergedBlob, 'merged.pdf');
+      alert('PDFの結合が完了しました！');
     } catch (error) {
       console.error('Merge error:', error);
-      alert('PDFの結合中にエラーが発生しました');
+      alert(`PDFの結合中にエラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsMerging(false);
     }
   };
 
-  const handleClearAll = () => {
-    if (window.confirm('すべてのページをクリアしますか？')) {
-      setOutputPages([]);
-    }
+  // ファイル名を取得するヘルパー関数
+  const getFileName = (pageId: string): string => {
+    const file = files.find((f) => f.pages.some((p) => p.id === pageId));
+    return file ? file.name : 'Unknown';
   };
 
   return (
     <div className="work-area">
-      <h2>📄 結合モード</h2>
+      <h2>🔗 結合モード</h2>
+      <p style={{ color: '#718096', marginBottom: '1.5rem' }}>
+        ページをドラッグ＆ドロップで並び替えて、結合順を調整できます
+      </p>
 
-      {files.length === 0 ? (
+      {pages.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">📂</div>
           <h3>PDFファイルを読み込んでください</h3>
@@ -93,126 +91,74 @@ export const MergeMode: React.FC<MergeModeProps> = ({ files }) => {
         </div>
       ) : (
         <>
-          <div>
-            <h3 style={{ marginBottom: '1rem', color: '#4a5568' }}>
-              入力PDFのページ一覧
-            </h3>
-            <div className="page-grid">
-              {files.flatMap((file) =>
-                file.pages.map((page) => (
-                  <div
-                    key={page.id}
-                    className="page-card"
-                    draggable
-                    onDragStart={() => handleDragStart(page)}
-                  >
-                    <img
-                      src={page.thumbnail}
-                      alt={`Page ${page.pageNumber + 1}`}
-                      className="page-thumbnail"
-                    />
-                    <div className="page-info">
-                      {file.name} - P.{page.pageNumber + 1}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div
-            style={{ marginTop: '2rem' }}
-            onDragOver={handleDragOver}
-            onDrop={handleDropToOutput}
-          >
-            <h3 style={{ marginBottom: '1rem', color: '#4a5568' }}>
-              📋 出力タイムライン（ドラッグ＆ドロップでページを追加）
-            </h3>
-
-            {outputPages.length === 0 ? (
+          <div className="page-grid">
+            {pages.map((page, index) => (
               <div
-                style={{
-                  border: '3px dashed #cbd5e0',
-                  borderRadius: '12px',
-                  padding: '3rem',
-                  textAlign: 'center',
-                  color: '#718096',
-                  background: '#f7fafc',
-                }}
+                key={page.id}
+                className={`page-card ${draggedIndex === index ? 'dragging' : ''}`}
+                draggable
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragEnd={handleDragEnd}
               >
-                <p style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
-                  ⬆️ ここにページをドロップ
-                </p>
-                <small>上のページをドラッグ＆ドロップで追加できます</small>
-              </div>
-            ) : (
-              <div className="page-grid">
-                {outputPages.map((page, index) => (
-                  <div
-                    key={`output-${page.id}-${index}`}
-                    className="page-card"
-                    draggable
-                    onDragStart={() => setDraggedPage(page)}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      if (draggedPage) {
-                        const fromIndex = outputPages.findIndex(
-                          (p) => p.id === draggedPage.id
-                        );
-                        if (fromIndex !== -1 && fromIndex !== index) {
-                          handleReorder(fromIndex, index);
-                        }
-                      }
-                    }}
+                <img
+                  src={page.thumbnail}
+                  alt={`Page ${page.pageNumber + 1}`}
+                  className="page-thumbnail"
+                  style={{
+                    transform: `rotate(${page.rotation}deg)`,
+                  }}
+                />
+                <div className="page-info">
+                  順序: {index + 1}
+                  <br />
+                  <small style={{ fontSize: '0.75rem', color: '#718096' }}>
+                    {getFileName(page.id)} - P.{page.pageNumber + 1}
+                  </small>
+                  {page.rotation > 0 && (
+                    <span className="rotation-indicator">
+                      <br />
+                      ↻ {page.rotation}°
+                    </span>
+                  )}
+                </div>
+                <div className="page-actions">
+                  <button
+                    className="btn btn-secondary btn-small"
+                    onClick={() => onPageRotate(page.id)}
+                    title="90度回転"
                   >
-                    <img
-                      src={page.thumbnail}
-                      alt={`Page ${page.pageNumber + 1}`}
-                      className="page-thumbnail"
-                      style={{
-                        transform: `rotate(${page.rotation}deg)`,
-                      }}
-                    />
-                    <div className="page-info">
-                      順序: {index + 1}
-                      {page.rotation > 0 && (
-                        <span className="rotation-indicator">
-                          ↻ {page.rotation}°
-                        </span>
-                      )}
-                    </div>
-                    <div className="page-actions">
-                      <button
-                        className="btn btn-secondary btn-small"
-                        onClick={() => handleRotatePage(index)}
-                        title="90度回転"
-                      >
-                        ↻ 回転
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-small"
-                        onClick={() => handleRemovePage(index)}
-                        title="削除"
-                      >
-                        🗑 削除
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                    ↻
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-small"
+                    onClick={() => onPageDuplicate(page.id)}
+                    title="複製"
+                  >
+                    📋
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-small"
+                    onClick={() => onPageRemove(page.id)}
+                    title="削除"
+                  >
+                    🗑
+                  </button>
+                </div>
               </div>
-            )}
+            ))}
           </div>
 
           <div className="action-bar">
-            <button className="btn btn-secondary" onClick={handleClearAll}>
+            <button className="btn btn-secondary" onClick={onClearAll}>
               🗑 すべてクリア
             </button>
             <button
               className="btn btn-primary"
               onClick={handleMerge}
-              disabled={outputPages.length === 0}
+              disabled={isMerging || pages.length === 0}
             >
-              ⬇️ PDFを結合してダウンロード
+              {isMerging ? '処理中...' : `⬇️ ${pages.length}ページを結合してダウンロード`}
             </button>
           </div>
         </>
