@@ -24,12 +24,15 @@ export const MergeMode: React.FC<MergeModeProps> = ({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isMerging, setIsMerging] = useState(false);
 
-  const handleDragStart = (index: number) => {
+  const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
     if (draggedIndex !== null && draggedIndex !== index) {
       onPageReorder(draggedIndex, index);
       setDraggedIndex(index);
@@ -97,7 +100,7 @@ export const MergeMode: React.FC<MergeModeProps> = ({
                 key={page.id}
                 className={`page-card ${draggedIndex === index ? 'dragging' : ''}`}
                 draggable
-                onDragStart={() => handleDragStart(index)}
+                onDragStart={(e) => handleDragStart(e, index)}
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDragEnd={handleDragEnd}
               >
