@@ -1,8 +1,7 @@
-import { useState } from 'react';
-import { AppMode, PDFFile } from './types/pdf';
+import { useState, useEffect } from 'react';
+import { AppMode, PDFFile, PDFPage } from './types/pdf';
 import { loadPDFFile } from './utils/pdfUtils';
 import { FileUpload } from './components/FileUpload';
-import { FileList } from './components/FileList';
 import { MergeMode } from './components/MergeMode';
 import { SplitMode } from './components/SplitMode';
 import './App.css';
@@ -10,8 +9,14 @@ import './App.css';
 function App() {
   const [mode, setMode] = useState<AppMode>('merge');
   const [files, setFiles] = useState<PDFFile[]>([]);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [pages, setPages] = useState<PDFPage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // filesが変更されたら、全ページを抽出してpages配列を更新
+  useEffect(() => {
+    const allPages = files.flatMap((file) => file.pages);
+    setPages(allPages);
+  }, [files]);
 
   const handleFilesAdded = async (newFiles: File[]) => {
     setIsLoading(true);
@@ -28,10 +33,43 @@ function App() {
     }
   };
 
-  const handleFileDelete = (fileId: string) => {
-    setFiles(files.filter((f) => f.id !== fileId));
-    if (selectedFileId === fileId) {
-      setSelectedFileId(null);
+  const handleClearAll = () => {
+    if (window.confirm('すべてのファイルとページをクリアしますか？')) {
+      setFiles([]);
+      setPages([]);
+    }
+  };
+
+  const handlePageReorder = (fromIndex: number, toIndex: number) => {
+    const newPages = [...pages];
+    const [removed] = newPages.splice(fromIndex, 1);
+    newPages.splice(toIndex, 0, removed);
+    setPages(newPages);
+  };
+
+  const handlePageRemove = (pageId: string) => {
+    setPages(pages.filter((p) => p.id !== pageId));
+  };
+
+  const handlePageRotate = (pageId: string) => {
+    setPages(
+      pages.map((p) =>
+        p.id === pageId ? { ...p, rotation: (p.rotation + 90) % 360 } : p
+      )
+    );
+  };
+
+  const handlePageDuplicate = (pageId: string) => {
+    const pageIndex = pages.findIndex((p) => p.id === pageId);
+    if (pageIndex !== -1) {
+      const originalPage = pages[pageIndex];
+      const duplicatedPage = {
+        ...originalPage,
+        id: `${originalPage.id}-copy-${Date.now()}`,
+      };
+      const newPages = [...pages];
+      newPages.splice(pageIndex + 1, 0, duplicatedPage);
+      setPages(newPages);
     }
   };
 
@@ -67,18 +105,32 @@ function App() {
                 読み込み中...
               </div>
             )}
-            <FileList
-              files={files}
-              selectedFileId={selectedFileId}
-              onFileSelect={setSelectedFileId}
-              onFileDelete={handleFileDelete}
-            />
+            <div style={{ marginTop: '1rem' }}>
+              <p style={{ color: '#4a5568', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                {files.length} ファイル読み込み済み
+              </p>
+              <p style={{ color: '#718096', fontSize: '0.85rem' }}>
+                {pages.length} ページ
+              </p>
+            </div>
           </aside>
 
           {mode === 'merge' ? (
-            <MergeMode files={files} />
+            <MergeMode
+              pages={pages}
+              files={files}
+              onPageReorder={handlePageReorder}
+              onPageRemove={handlePageRemove}
+              onPageRotate={handlePageRotate}
+              onPageDuplicate={handlePageDuplicate}
+              onClearAll={handleClearAll}
+            />
           ) : (
-            <SplitMode files={files} selectedFileId={selectedFileId} />
+            <SplitMode
+              pages={pages}
+              files={files}
+              onClearAll={handleClearAll}
+            />
           )}
         </div>
       </main>
