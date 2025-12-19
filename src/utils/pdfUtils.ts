@@ -1,5 +1,9 @@
 import { PDFDocument, degrees } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
 import { PDFFile, PDFPage } from '../types/pdf';
+
+// PDF.js worker設定
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export async function loadPDFFile(file: File): Promise<PDFFile> {
   const arrayBuffer = await file.arrayBuffer();
@@ -30,25 +34,52 @@ export async function loadPDFFile(file: File): Promise<PDFFile> {
 
 async function generateThumbnail(pdfArrayBuffer: ArrayBuffer, pageIndex: number): Promise<string> {
   try {
-    const pdfDoc = await PDFDocument.load(pdfArrayBuffer);
-    const page = pdfDoc.getPage(pageIndex);
-    const { width, height } = page.getSize();
+    // PDF.jsを使用して高品質なサムネイルを生成
+    const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
+    const pdf = await loadingTask.promise;
+    const page = await pdf.getPage(pageIndex + 1); // PDF.jsは1始まり
 
-    // Create a simple data URL for thumbnail
-    // For production, you might want to use PDF.js for better rendering
+    // サムネイルのスケールを設定（最大幅200px）
+    const viewport = page.getViewport({ scale: 1.0 });
+    const scale = 200 / Math.max(viewport.width, viewport.height);
+    const scaledViewport = page.getViewport({ scale });
+
+    // Canvasを作成
     const canvas = document.createElement('canvas');
-    const scale = 200 / Math.max(width, height);
-    canvas.width = width * scale;
-    canvas.height = height * scale;
+    const context = canvas.getContext('2d', { alpha: false });
 
+    if (!context) {
+      throw new Error('Failed to get canvas context');
+    }
+
+    // Canvasのサイズを設定
+    canvas.width = Math.floor(scaledViewport.width);
+    canvas.height = Math.floor(scaledViewport.height);
+
+    // PDFページをCanvasに描画
+    const renderContext = {
+      canvasContext: context,
+      viewport: scaledViewport,
+    };
+
+    await page.render(renderContext as any).promise;
+
+    // CanvasをData URLに変換
+    return canvas.toDataURL('image/png');
+  } catch (error) {
+    console.error('Error generating thumbnail:', error);
+
+    // エラー時はフォールバック用の簡易サムネイルを生成
+    const canvas = document.createElement('canvas');
+    canvas.width = 150;
+    canvas.height = 200;
     const ctx = canvas.getContext('2d');
+
     if (ctx) {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#f0f0f0';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = '#cccccc';
       ctx.strokeRect(0, 0, canvas.width, canvas.height);
-
-      // Draw page number
       ctx.fillStyle = '#666666';
       ctx.font = '14px Arial';
       ctx.textAlign = 'center';
@@ -56,9 +87,6 @@ async function generateThumbnail(pdfArrayBuffer: ArrayBuffer, pageIndex: number)
     }
 
     return canvas.toDataURL();
-  } catch (error) {
-    console.error('Error generating thumbnail:', error);
-    return '';
   }
 }
 
