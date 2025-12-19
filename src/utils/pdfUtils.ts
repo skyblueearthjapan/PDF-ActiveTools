@@ -2,8 +2,9 @@ import { PDFDocument, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import { PDFFile, PDFPage } from '../types/pdf';
 
-// PDF.js worker設定
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// PDF.js worker設定（Viteのbase pathを考慮）
+const baseUrl = import.meta.env.BASE_URL || '/';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${baseUrl}assets/pdf.worker.min.mjs`;
 
 export async function loadPDFFile(file: File): Promise<PDFFile> {
   const arrayBuffer = await file.arrayBuffer();
